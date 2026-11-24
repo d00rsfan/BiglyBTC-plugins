@@ -1,0 +1,38 @@
+name: Package a tested native component
+description: Archive the Release build for Ubuntu 26.04 amd64 with provenance and SHA-256
+inputs:
+  component:
+    description: Native component identifier
+    required: true
+  kind:
+    description: module or host-library
+    required: true
+  build-dir:
+    description: Release CMake build directory
+    required: true
+  libraries:
+    description: Space-separated filenames from the Release build directory
+    required: true
+  headers:
+    description: Space-separated public header filenames from the source root
+    default: ''
+  dependency-prefix:
+    description: Optional installed BiglyBTCCore prefix needed by this component
+    default: ''
+outputs:
+  directory:
+    description: Directory containing the archive and its SHA-256
+    value: ${{ steps.pack.outputs.directory }}
+runs:
+  using: composite
+  steps:
+    - id: pack
+      shell: bash
+      env:
+        COMPONENT: ${{ inputs.component }}
+        KIND: ${{ inputs.kind }}
+        BUILD_DIR: ${{ inputs.build-dir }}
+        LIBRARIES: ${{ inputs.libraries }}
+        HEADERS: ${{ inputs.headers }}
+        DEPENDENCY_PREFIX: ${{ inputs.dependency-prefix }}
+      run: python3 "$GITHUB_ACTION_PATH/package_component.py"
