@@ -1,0 +1,59 @@
+name: Native plugin catalogue
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      azlocprov_run:
+        description: Successful azlocprov Linux package run ID
+        required: true
+        type: string
+      azlocprov_commit:
+        description: Full Git commit of that run
+        required: true
+        type: string
+      sequence:
+        description: Catalogue sequence greater than the last published sequence
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  catalogue:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the catalogue assembler
+        run: python3 -m unittest test_catalogue.py
+      - name: Verify source run and assemble unsigned catalogue
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AZLOCPROV_RUN: ${{ inputs.azlocprov_run }}
+          AZLOCPROV_COMMIT: ${{ inputs.azlocprov_commit }}
+          SEQUENCE: ${{ inputs.sequence }}
+        run: |
+          set -euo pipefail
+          [[ "$AZLOCPROV_RUN" =~ ^[1-9][0-9]*$ && "$AZLOCPROV_COMMIT" =~ ^[0-9a-f]{40}$ && "$SEQUENCE" =~ ^[1-9][0-9]*$ ]]
+          repo=d00rsfan/BiglyBTC-plugin-azlocprov
+          gh api "repos/$repo/actions/runs/$AZLOCPROV_RUN" --jq \
+            '[.event,.head_branch,.head_sha,.conclusion,.path] | @tsv' > "$RUNNER_TEMP/azlocprov-run"
+          IFS=$'\t' read -r event branch commit conclusion workflow < "$RUNNER_TEMP/azlocprov-run"
+          [[ "$event" == push && "$branch" == master && "$commit" == "$AZLOCPROV_COMMIT" &&
+              "$conclusion" == success && "$workflow" == .github/workflows/linux.yml ]]
+          gh run download "$AZLOCPROV_RUN" --repo "$repo" --name azlocprov-ubuntu-26.04-amd64 \
+            --dir "$RUNNER_TEMP/azlocprov-package"
+          python3 assemble_catalogue.py "$RUNNER_TEMP/azlocprov-package" "$AZLOCPROV_COMMIT" "$SEQUENCE" \
+            "$RUNNER_TEMP/catalogue.json"
+      - name: Retain the unsigned release catalogue
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-plugin-catalogue
+          path: ${{ runner.temp }}/catalogue.json
+          if-no-files-found: error
